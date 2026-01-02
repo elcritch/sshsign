@@ -9,3 +9,6 @@ requires "nim >= 2.0.2"
 feature "cbor":
   requires "cborious"
 
+task test, "Run the test suite":
+  exec "nim c -r tests/test_sshsign.nim"
+
