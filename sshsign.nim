@@ -16,7 +16,7 @@
 ##   let isValid = verifyMessage("Hello, World!", signature, allowedSigners,
 ##                               "user@example.com", "application")
 
-import std/[osproc, os, tempfiles, strutils, streams, httpclient]
+import std/[osproc, os, tempfiles, strutils, streams, httpclient, uri]
 
 type
   SshSignError* = object of CatchableError
@@ -255,7 +255,7 @@ proc verifyFile*(filePath: string,
     except OSError:
       discard
 
-proc fetchGithubKeys*(username: string): string =
+proc fetchGithubKeys*(username: string, baseUri = parseUri"https://github.com"): string =
   ## Fetches SSH public keys for a GitHub user.
   ##
   ## Parameters:
@@ -267,8 +267,7 @@ proc fetchGithubKeys*(username: string): string =
   ## Raises:
   ##   - SshSignError: If fetching keys fails or user has no keys
   ##   - HttpRequestError: If HTTP request fails
-
-  let url = "https://github.com/" & username & ".keys"
+  let url = $(baseUri / (username & ".keys"))
   var client = newHttpClient()
 
   try:
