@@ -16,7 +16,7 @@
 ##   let isValid = verifyMessage("Hello, World!", signature, allowedSigners,
 ##                               "user@example.com", "application")
 
-import std/[osproc, os, tempfiles, strutils, streams]
+import std/[osproc, os, tempfiles, strutils, streams, httpclient]
 
 type
   SshSignError* = object of CatchableError
@@ -254,3 +254,99 @@ proc verifyFile*(filePath: string,
       removeFile(allowedPath)
     except OSError:
       discard
+
+proc fetchGithubKeys*(username: string): string =
+  ## Fetches SSH public keys for a GitHub user.
+  ##
+  ## Parameters:
+  ##   - username: GitHub username
+  ##
+  ## Returns:
+  ##   The public keys in SSH format (one per line)
+  ##
+  ## Raises:
+  ##   - SshSignError: If fetching keys fails or user has no keys
+  ##   - HttpRequestError: If HTTP request fails
+
+  let url = "https://github.com/" & username & ".keys"
+  var client = newHttpClient()
+
+  try:
+    let response = client.getContent(url)
+
+    if response.strip().len == 0:
+      raise newException(SshSignError,
+        "No public keys found for GitHub user: " & username)
+
+    result = response
+  except HttpRequestError as e:
+    raise newException(SshSignError,
+      "Failed to fetch GitHub keys for user '" & username & "': " & e.msg)
+  finally:
+    client.close()
+
+proc verifyMessageWithGithubUser*(message: string,
+                                   signature: string,
+                                   githubUsername: string,
+                                   namespace: string = "file"): VerifyResult =
+  ## Verifies a message signature using a GitHub user's public keys.
+  ##
+  ## Parameters:
+  ##   - message: The original message that was signed
+  ##   - signature: The SSH signature to verify
+  ##   - githubUsername: GitHub username whose keys to use for verification
+  ##   - namespace: The namespace used for signing (default: "file")
+  ##
+  ## Returns:
+  ##   A VerifyResult indicating whether the signature is valid
+  ##
+  ## Raises:
+  ##   - SshSignError: If fetching keys fails
+  ##
+  ## Note:
+  ##   This function fetches public keys from https://github.com/{username}.keys
+  ##   and attempts to verify the signature against all of the user's keys.
+
+  # Fetch the user's public keys from GitHub
+  let publicKeys = fetchGithubKeys(githubUsername)
+
+  # Format as allowed_signers (each key on its own line with the identity)
+  var allowedSigners = ""
+  for line in publicKeys.splitLines():
+    let key = line.strip()
+    if key.len > 0:
+      allowedSigners.add(githubUsername & " " & key & "\n")
+
+  # Use the standard verification with the GitHub username as identity
+  result = verifyMessage(message, signature, allowedSigners, githubUsername, namespace)
+
+proc verifyFileWithGithubUser*(filePath: string,
+                                signaturePath: string,
+                                githubUsername: string,
+                                namespace: string = "file"): VerifyResult =
+  ## Verifies a file signature using a GitHub user's public keys.
+  ##
+  ## Parameters:
+  ##   - filePath: Path to the file that was signed
+  ##   - signaturePath: Path to the signature file
+  ##   - githubUsername: GitHub username whose keys to use for verification
+  ##   - namespace: The namespace used for signing (default: "file")
+  ##
+  ## Returns:
+  ##   A VerifyResult indicating whether the signature is valid
+  ##
+  ## Raises:
+  ##   - SshSignError: If fetching keys fails or files don't exist
+
+  if not fileExists(filePath):
+    raise newException(SshSignError, "File not found: " & filePath)
+
+  if not fileExists(signaturePath):
+    raise newException(SshSignError, "Signature file not found: " & signaturePath)
+
+  # Read the file content
+  let fileContent = readFile(filePath)
+  let signatureContent = readFile(signaturePath)
+
+  # Use the message verification with GitHub user
+  result = verifyMessageWithGithubUser(fileContent, signatureContent, githubUsername, namespace)

@@ -6,6 +6,7 @@ A Nim library for signing and verifying messages using SSH keys via the `ssh-key
 
 - Sign messages and files using SSH private keys
 - Verify signatures using SSH public keys
+- **GitHub Integration**: Verify signatures using GitHub user's public SSH keys
 - Thread-safe process execution
 - Support for custom namespaces
 - Compatible with SSH's allowed_signers format
@@ -14,13 +15,14 @@ A Nim library for signing and verifying messages using SSH keys via the `ssh-key
 
 - Nim compiler
 - OpenSSH with `ssh-keygen` support for signing (OpenSSH 8.0+)
+- SSL support (compile with `-d:ssl`) for GitHub integration features
 
 ## Installation
 
 Add to your `.nimble` file:
 
 ```nim
-requires "https://github.com/yourusername/sshsign"
+requires "https://github.com/elcritch/sshsign"
 ```
 
 Or install directly:
@@ -163,6 +165,86 @@ let result = verifyFile(
   "document.txt.sig",
   allowedSigners,
   "user@example.com"
+)
+```
+
+### GitHub Integration
+
+#### `fetchGithubKeys`
+
+Fetches SSH public keys for a GitHub user from `github.com/{username}.keys`.
+
+```nim
+proc fetchGithubKeys(username: string): string
+```
+
+**Parameters:**
+- `username`: GitHub username
+
+**Returns:** Public keys in SSH format (one per line)
+
+**Example:**
+```nim
+let keys = fetchGithubKeys("elcritch")
+echo keys
+```
+
+**Note:** Requires compilation with `-d:ssl` flag for HTTPS support.
+
+#### `verifyMessageWithGithubUser`
+
+Verifies a message signature using a GitHub user's public keys.
+
+```nim
+proc verifyMessageWithGithubUser(message: string,
+                                  signature: string,
+                                  githubUsername: string,
+                                  namespace: string = "file"): VerifyResult
+```
+
+**Parameters:**
+- `message`: Original message that was signed
+- `signature`: SSH signature to verify
+- `githubUsername`: GitHub username whose keys to use
+- `namespace`: Namespace used for signing (default: "file")
+
+**Returns:** `VerifyResult` with validation status
+
+**Example:**
+```nim
+# Sign a message with your SSH key
+let signature = signMessage("Hello!", "~/.ssh/id_ed25519", "myapp").signature
+
+# Verify using a GitHub user's public keys
+let result = verifyMessageWithGithubUser(
+  "Hello!",
+  signature,
+  "elcritch",
+  "myapp"
+)
+
+if result.valid:
+  echo "Signature verified against GitHub user's keys!"
+```
+
+#### `verifyFileWithGithubUser`
+
+Verifies a file signature using a GitHub user's public keys.
+
+```nim
+proc verifyFileWithGithubUser(filePath: string,
+                               signaturePath: string,
+                               githubUsername: string,
+                               namespace: string = "file"): VerifyResult
+```
+
+**Example:**
+```nim
+let result = verifyFileWithGithubUser(
+  "document.txt",
+  "document.txt.sig",
+  "elcritch",
+  "file"
 )
 ```
 
