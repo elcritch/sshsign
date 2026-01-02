@@ -1,4 +1,4 @@
-version = "0.1.0"
+version = "0.1.1"
 author = "Jaremy Creechley"
 description = "ssh signing library"
 license = "MIT"
@@ -8,7 +8,4 @@ requires "nim >= 2.0.2"
 
 feature "cbor":
   requires "cborious"
-
-task test, "Run the test suite":
-  exec "nim c -r tests/test_sshsign.nim"
 
