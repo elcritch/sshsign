@@ -16,7 +16,7 @@
 ##   let isValid = verifyMessage("Hello, World!", signature, allowedSigners,
 ##                               "user@example.com", "application")
 
-import std/[osproc, os, tempfiles, strutils, streams, httpclient, uri]
+import std/[osproc, os, tempfiles, strutils, streams, httpclient, uri, json]
 
 type
   SshSignError* = object of CatchableError
@@ -349,3 +349,91 @@ proc verifyFileWithGithubUser*(filePath: string,
 
   # Use the message verification with GitHub user
   result = verifyMessageWithGithubUser(fileContent, signatureContent, githubUsername, namespace)
+
+# JSON Serialization
+proc toJson*(self: SignResult): JsonNode =
+  ## Converts a SignResult to JSON.
+  ##
+  ## Returns:
+  ##   A JsonNode representing the SignResult
+  ##
+  ## Example:
+  ##   let result = signMessage("Hello", "~/.ssh/id_ed25519", "app")
+  ##   let jsonNode = result.toJson()
+  ##   echo jsonNode.pretty()
+  %* {
+    "signature": self.signature,
+    "signatureFile": self.signatureFile
+  }
+
+proc fromJson*(T: typedesc[SignResult], node: JsonNode): SignResult =
+  ## Creates a SignResult from JSON.
+  ##
+  ## Parameters:
+  ##   - node: JsonNode to parse
+  ##
+  ## Returns:
+  ##   A SignResult instance
+  ##
+  ## Example:
+  ##   let json = parseJson("""{"signature": "...", "signatureFile": ""}""")
+  ##   let result = SignResult.fromJson(json)
+  SignResult(
+    signature: node["signature"].getStr(),
+    signatureFile: node["signatureFile"].getStr()
+  )
+
+proc toJson*(self: VerifyResult): JsonNode =
+  ## Converts a VerifyResult to JSON.
+  ##
+  ## Returns:
+  ##   A JsonNode representing the VerifyResult
+  ##
+  ## Example:
+  ##   let result = verifyMessage(msg, sig, allowed, identity, ns)
+  ##   let jsonNode = result.toJson()
+  ##   echo jsonNode.pretty()
+  %* {
+    "valid": self.valid,
+    "message": self.message
+  }
+
+proc fromJson*(T: typedesc[VerifyResult], node: JsonNode): VerifyResult =
+  ## Creates a VerifyResult from JSON.
+  ##
+  ## Parameters:
+  ##   - node: JsonNode to parse
+  ##
+  ## Returns:
+  ##   A VerifyResult instance
+  ##
+  ## Example:
+  ##   let json = parseJson("""{"valid": true, "message": "Good signature"}""")
+  ##   let result = VerifyResult.fromJson(json)
+  VerifyResult(
+    valid: node["valid"].getBool(),
+    message: node["message"].getStr()
+  )
+
+proc toJsonString*(self: SignResult): string =
+  ## Converts a SignResult to a JSON string.
+  ##
+  ## Returns:
+  ##   A JSON string representation
+  ##
+  ## Example:
+  ##   let result = signMessage("Hello", "~/.ssh/id_ed25519", "app")
+  ##   let jsonStr = result.toJsonString()
+  ##   writeFile("signature.json", jsonStr)
+  $self.toJson()
+
+proc toJsonString*(self: VerifyResult): string =
+  ## Converts a VerifyResult to a JSON string.
+  ##
+  ## Returns:
+  ##   A JSON string representation
+  ##
+  ## Example:
+  ##   let result = verifyMessage(msg, sig, allowed, identity, ns)
+  ##   echo result.toJsonString()
+  $self.toJson()

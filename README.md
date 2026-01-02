@@ -7,6 +7,7 @@ A Nim library for signing and verifying messages using SSH keys via the `ssh-key
 - Sign messages and files using SSH private keys
 - Verify signatures using SSH public keys
 - **GitHub Integration**: Verify signatures using GitHub user's public SSH keys
+- **JSON Serialization**: Simple JSON encoding/decoding for results
 - Thread-safe process execution
 - Support for custom namespaces
 - Compatible with SSH's allowed_signers format
@@ -37,26 +38,30 @@ nimble install sshsign
 import sshsign
 
 # Sign a message
-let signature = signMessage(
+let signResult = signMessage(
   "Hello, World!",
   "~/.ssh/id_ed25519",
   "application"
-).signature
+)
 
 # Verify the signature
 let allowedSigners = "user@example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx..."
-let result = verifyMessage(
+let verifyResult = verifyMessage(
   "Hello, World!",
-  signature,
+  signResult.signature,
   allowedSigners,
   "user@example.com",
   "application"
 )
 
-if result.valid:
+if verifyResult.valid:
   echo "Signature is valid!"
 else:
-  echo "Signature verification failed: ", result.message
+  echo "Signature verification failed: ", verifyResult.message
+
+# Serialize to JSON
+echo verifyResult.toJsonString()
+# Output: {"valid":true,"message":"Good signature..."}
 ```
 
 ## API Documentation
@@ -246,6 +251,74 @@ let result = verifyFileWithGithubUser(
   "elcritch",
   "file"
 )
+```
+
+### JSON Serialization
+
+The library provides simple JSON serialization for `SignResult` and `VerifyResult` types.
+
+#### `toJson`
+
+Converts results to JSON nodes.
+
+```nim
+# Serialize SignResult
+let signResult = signMessage("Hello", "~/.ssh/id_ed25519", "app")
+let jsonNode = signResult.toJson()
+echo jsonNode.pretty()
+
+# Serialize VerifyResult
+let verifyResult = verifyMessage(msg, sig, allowed, identity, ns)
+let jsonNode = verifyResult.toJson()
+```
+
+#### `fromJson`
+
+Deserializes results from JSON.
+
+```nim
+# Deserialize SignResult
+let json = parseJson("""{"signature": "...", "signatureFile": ""}""")
+let signResult = SignResult.fromJson(json)
+
+# Deserialize VerifyResult
+let json = parseJson("""{"valid": true, "message": "Good signature"}""")
+let verifyResult = VerifyResult.fromJson(json)
+```
+
+#### `toJsonString`
+
+Converts results directly to JSON strings.
+
+```nim
+# Convert to JSON string
+let signResult = signMessage("Hello", "~/.ssh/id_ed25519", "app")
+let jsonStr = signResult.toJsonString()
+
+# Save to file
+writeFile("signature.json", jsonStr)
+
+# Load and parse
+let loaded = parseJson(readFile("signature.json"))
+let restored = SignResult.fromJson(loaded)
+```
+
+**JSON Format Examples:**
+
+SignResult:
+```json
+{
+  "signature": "-----BEGIN SSH SIGNATURE-----\n...\n-----END SSH SIGNATURE-----",
+  "signatureFile": ""
+}
+```
+
+VerifyResult:
+```json
+{
+  "valid": true,
+  "message": "Good signature for test@example.com with ED25519 key SHA256:..."
+}
 ```
 
 ## Complete Example

@@ -1,4 +1,4 @@
-import std/[unittest, os, osproc, strutils, tempfiles]
+import std/[unittest, os, osproc, strutils, tempfiles, json]
 import sshsign
 
 suite "SSH Signing Tests":
@@ -305,6 +305,131 @@ suite "GitHub Integration Tests":
 
       # Verification should fail since the signature was made with a different key
       check verifyResult.valid == false
+
+    finally:
+      if fileExists(keyPath):
+        removeFile(keyPath)
+      if fileExists(pubKeyPath):
+        removeFile(pubKeyPath)
+
+suite "JSON Serialization Tests":
+  test "SignResult toJson and fromJson round-trip":
+    let original = SignResult(
+      signature: "-----BEGIN SSH SIGNATURE-----\ntest\n-----END SSH SIGNATURE-----",
+      signatureFile: "/tmp/test.sig"
+    )
+
+    let jsonNode = original.toJson()
+    check jsonNode.hasKey("signature")
+    check jsonNode.hasKey("signatureFile")
+    check jsonNode["signature"].getStr() == original.signature
+    check jsonNode["signatureFile"].getStr() == original.signatureFile
+
+    let restored = SignResult.fromJson(jsonNode)
+    check restored.signature == original.signature
+    check restored.signatureFile == original.signatureFile
+
+  test "SignResult toJsonString produces valid JSON":
+    let result = SignResult(
+      signature: "test-signature",
+      signatureFile: ""
+    )
+
+    let jsonStr = result.toJsonString()
+    check jsonStr.len > 0
+
+    # Parse it back to verify it's valid JSON
+    let parsed = parseJson(jsonStr)
+    check parsed["signature"].getStr() == "test-signature"
+    check parsed["signatureFile"].getStr() == ""
+
+  test "VerifyResult toJson and fromJson round-trip":
+    let original = VerifyResult(
+      valid: true,
+      message: "Good signature from test@example.com"
+    )
+
+    let jsonNode = original.toJson()
+    check jsonNode.hasKey("valid")
+    check jsonNode.hasKey("message")
+    check jsonNode["valid"].getBool() == true
+    check jsonNode["message"].getStr() == original.message
+
+    let restored = VerifyResult.fromJson(jsonNode)
+    check restored.valid == original.valid
+    check restored.message == original.message
+
+  test "VerifyResult toJsonString produces valid JSON":
+    let result = VerifyResult(
+      valid: false,
+      message: "Signature verification failed"
+    )
+
+    let jsonStr = result.toJsonString()
+    check jsonStr.len > 0
+
+    # Parse it back to verify it's valid JSON
+    let parsed = parseJson(jsonStr)
+    check parsed["valid"].getBool() == false
+    check parsed["message"].getStr() == "Signature verification failed"
+
+  test "SignResult JSON with empty signatureFile":
+    let result = SignResult(
+      signature: "test-sig",
+      signatureFile: ""
+    )
+
+    let json = result.toJson()
+    let restored = SignResult.fromJson(json)
+
+    check restored.signature == "test-sig"
+    check restored.signatureFile == ""
+
+  test "Integration: sign, serialize, deserialize, verify":
+    # Generate a temporary key
+    let (tempFile, keyPath) = createTempFile("test_json_key_", "")
+    tempFile.close()
+    removeFile(keyPath)
+
+    let pubKeyPath = keyPath & ".pub"
+
+    try:
+      # Generate ED25519 key
+      let genCmd = "ssh-keygen -t ed25519 -f " & quoteShell(keyPath) &
+                   " -N '' -C 'test@example.com'"
+      let (_, exitCode) = execCmdEx(genCmd)
+
+      if exitCode != 0:
+        skip()
+
+      # Sign a message
+      let message = "Test message for JSON serialization"
+      let namespace = "json-test"
+      let signResult = signMessage(message, keyPath, namespace)
+
+      # Serialize to JSON
+      let jsonStr = signResult.toJsonString()
+
+      # Deserialize from JSON
+      let jsonNode = parseJson(jsonStr)
+      let restoredResult = SignResult.fromJson(jsonNode)
+
+      # Verify the signature still works
+      let pubKey = readFile(pubKeyPath).strip()
+      let allowedSigners = "test@example.com " & pubKey
+
+      let verifyResult = verifyMessage(message, restoredResult.signature,
+                                       allowedSigners, "test@example.com", namespace)
+
+      check verifyResult.valid == true
+
+      # Serialize verify result
+      let verifyJsonStr = verifyResult.toJsonString()
+      let verifyJsonNode = parseJson(verifyJsonStr)
+      let restoredVerifyResult = VerifyResult.fromJson(verifyJsonNode)
+
+      check restoredVerifyResult.valid == true
+      check restoredVerifyResult.message.len > 0
 
     finally:
       if fileExists(keyPath):
