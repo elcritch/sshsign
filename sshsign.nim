@@ -16,7 +16,7 @@
 ##   let isValid = verifyMessage("Hello, World!", signature, allowedSigners,
 ##                               "user@example.com", "application")
 
-import std/[osproc, os, tempfiles, strutils]
+import std/[osproc, os, tempfiles, strutils, streams]
 
 type
   SshSignError* = object of CatchableError
@@ -31,6 +31,24 @@ type
     ## Result of a verification operation
     valid*: bool           ## Whether the signature is valid
     message*: string       ## Message from ssh-keygen about the verification
+
+proc execProcessCapture*(cmd: string;
+                         args: seq[string],
+                         options: set[ProcessOption] = {},
+                         stdinInput: string = ""): (string, int) =
+  var cmdLine = quoteShellCommand(@[cmd] & args)
+  var p = startProcess(cmdLine, options = options + {poEvalCommand})
+
+  if stdinInput.len > 0:
+    var inStream = inputStream(p)
+    inStream.write(stdinInput)
+    inStream.flush()
+  close inputStream(p)
+
+  let output = outputStream(p).readAll()
+  let exitCode = p.waitForExit()
+  close(p)
+  result = (output, exitCode)
 
 proc signMessage*(message: string,
                   privateKeyPath: string,
@@ -66,10 +84,8 @@ proc signMessage*(message: string,
     let sigPath = msgPath & ".sig"
 
     # Run ssh-keygen to sign the message
-    let cmd = "ssh-keygen -Y sign -f " & quoteShell(keyPath) &
-              " -n " & quoteShell(namespace) & " " & quoteShell(msgPath)
-
-    let (output, exitCode) = execCmdEx(cmd)
+    let (output, exitCode) = execProcessCapture("ssh-keygen",
+      @["-Y", "sign", "-f", keyPath, "-n", namespace, msgPath])
 
     if exitCode != 0:
       raise newException(SshSignError,
@@ -122,10 +138,8 @@ proc signFile*(filePath: string,
   let sigPath = filePath & ".sig"
 
   # Run ssh-keygen to sign the file
-  let cmd = "ssh-keygen -Y sign -f " & quoteShell(keyPath) &
-            " -n " & quoteShell(namespace) & " " & quoteShell(filePath)
-
-  let (output, exitCode) = execCmdEx(cmd)
+  let (output, exitCode) = execProcessCapture("ssh-keygen",
+    @["-Y", "sign", "-f", keyPath, "-n", namespace, filePath])
 
   if exitCode != 0:
     raise newException(SshSignError,
@@ -176,14 +190,13 @@ proc verifyMessage*(message: string,
     allowedFile.write(allowedSigners)
     allowedFile.close()
 
-    # Run ssh-keygen to verify
-    let cmd = "ssh-keygen -Y verify -f " & quoteShell(allowedPath) &
-              " -I " & quoteShell(identity) &
-              " -n " & quoteShell(namespace) &
-              " -s " & quoteShell(sigPath) &
-              " < " & quoteShell(msgPath)
+    # Read message for stdin
+    let msgContent = readFile(msgPath)
 
-    let (output, exitCode) = execCmdEx(cmd)
+    # Run ssh-keygen to verify
+    let (output, exitCode) = execProcessCapture("ssh-keygen",
+      @["-Y", "verify", "-f", allowedPath, "-I", identity, "-n", namespace, "-s", sigPath],
+      stdinInput = msgContent)
 
     result.valid = (exitCode == 0)
     result.message = output.strip()
@@ -225,14 +238,13 @@ proc verifyFile*(filePath: string,
     allowedFile.write(allowedSigners)
     allowedFile.close()
 
-    # Run ssh-keygen to verify
-    let cmd = "ssh-keygen -Y verify -f " & quoteShell(allowedPath) &
-              " -I " & quoteShell(identity) &
-              " -n " & quoteShell(namespace) &
-              " -s " & quoteShell(signaturePath) &
-              " < " & quoteShell(filePath)
+    # Read file content for stdin
+    let fileContent = readFile(filePath)
 
-    let (output, exitCode) = execCmdEx(cmd)
+    # Run ssh-keygen to verify
+    let (output, exitCode) = execProcessCapture("ssh-keygen",
+      @["-Y", "verify", "-f", allowedPath, "-I", identity, "-n", namespace, "-s", signaturePath],
+      stdinInput = fileContent)
 
     result.valid = (exitCode == 0)
     result.message = output.strip()
