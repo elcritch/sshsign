@@ -1,5 +1,5 @@
 import std/[unittest, os, osproc, strutils, tempfiles]
-import ../sshsign
+import sshsign
 
 suite "SSH Signing Tests":
   var testKeyPath: string
